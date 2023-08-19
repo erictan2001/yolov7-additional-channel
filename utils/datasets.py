@@ -63,7 +63,7 @@ def exif_size(img):
 
 
 def create_dataloader(path, imgsz, batch_size, stride, opt, hyp=None, augment=False, cache=False, pad=0.0, rect=False,
-                      rank=-1, world_size=1, workers=8, image_weights=False, quad=False, prefix=''):
+                      rank=-1, world_size=1, workers=8, image_weights=False, quad=False, prefix='',additional_ch=0):
     # Make sure only the first process in DDP process the dataset first, and the following others can use the cache
     with torch_distributed_zero_first(rank):
         dataset = LoadImagesAndLabels(path, imgsz, batch_size,
@@ -75,7 +75,8 @@ def create_dataloader(path, imgsz, batch_size, stride, opt, hyp=None, augment=Fa
                                       stride=int(stride),
                                       pad=pad,
                                       image_weights=image_weights,
-                                      prefix=prefix)
+                                      prefix=prefix,
+                                      additional_ch=additional_ch)
 
     batch_size = min(batch_size, len(dataset))
     nw = min([os.cpu_count() // world_size, batch_size if batch_size > 1 else 0, workers])  # number of workers
@@ -126,7 +127,7 @@ class _RepeatSampler(object):
 
 
 class LoadImages:  # for inference
-    def __init__(self, path, img_size=640, stride=32):
+    def __init__(self, path, img_size=640, stride=32,additonal_ch=0):
         p = str(Path(path).absolute())  # os-agnostic absolute path
         if '*' in p:
             files = sorted(glob.glob(p, recursive=True))  # glob
@@ -147,6 +148,7 @@ class LoadImages:  # for inference
         self.nf = ni + nv  # number of files
         self.video_flag = [False] * ni + [True] * nv
         self.mode = 'image'
+        self.additonal_ch = additonal_ch
         if any(videos):
             self.new_video(videos[0])  # new video
         else:
@@ -185,6 +187,10 @@ class LoadImages:  # for inference
             self.count += 1
             img0 = cv2.imread(path)  # BGR
             assert img0 is not None, 'Image Not Found ' + path
+            # append additional channel for img
+            if self.additional_ch > 0:
+                ch_arr = np.zeros((img0.shape[0], img0.shape[1], 1), dtype=img0.dtype)
+                img0 = np.concatenate((img0, ch_arr), axis=2)
             #print(f'image {self.count}/{self.nf} {path}: ', end='')
 
         # Padded resize
@@ -352,7 +358,7 @@ def img2label_paths(img_paths):
 
 class LoadImagesAndLabels(Dataset):  # for training/testing
     def __init__(self, path, img_size=640, batch_size=16, augment=False, hyp=None, rect=False, image_weights=False,
-                 cache_images=False, single_cls=False, stride=32, pad=0.0, prefix=''):
+                 cache_images=False, single_cls=False, stride=32, pad=0.0, prefix='',additional_ch=0):
         self.img_size = img_size
         self.augment = augment
         self.hyp = hyp
@@ -362,6 +368,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         self.mosaic_border = [-img_size // 2, -img_size // 2]
         self.stride = stride
         self.path = path        
+        self.additional_ch = additional_ch
         #self.albumentations = Albumentations() if augment else None
 
         try:
@@ -675,13 +682,23 @@ def load_image(self, index):
         if r != 1:  # always resize down, only resize up if training with augmentation
             interp = cv2.INTER_AREA if r < 1 and not self.augment else cv2.INTER_LINEAR
             img = cv2.resize(img, (int(w0 * r), int(h0 * r)), interpolation=interp)
+        #TODO: change to correct additional channels array
+        if self.additional_ch > 0:
+            ch_arr = np.zeros((img.shape[0], img.shape[1], self.additional_ch), dtype=np.uint8)
+            img = np.concatenate((img, ch_arr), axis=2)
         return img, (h0, w0), img.shape[:2]  # img, hw_original, hw_resized
     else:
-        return self.imgs[index], self.img_hw0[index], self.img_hw[index]  # img, hw_original, hw_resized
+        if self.additional_ch > 0:
+            ch_arr = np.zeros((img.shape[0], img.shape[1], self.additional_ch), dtype=np.uint8)
+            img = np.concatenate((img, ch_arr), axis=2)
+        return img, self.img_hw0[index], self.img_hw[index]  # img, hw_original, hw_resized
 
 
 def augment_hsv(img, hgain=0.5, sgain=0.5, vgain=0.5):
     r = np.random.uniform(-1, 1, 3) * [hgain, sgain, vgain] + 1  # random gains
+    channels = img.shape[-1]
+    if channels > 3:
+        img, ch_arr = img[:, :, :3], img[:, :, 3:]
     hue, sat, val = cv2.split(cv2.cvtColor(img, cv2.COLOR_BGR2HSV))
     dtype = img.dtype  # uint8
 
@@ -691,7 +708,10 @@ def augment_hsv(img, hgain=0.5, sgain=0.5, vgain=0.5):
     lut_val = np.clip(x * r[2], 0, 255).astype(dtype)
 
     img_hsv = cv2.merge((cv2.LUT(hue, lut_hue), cv2.LUT(sat, lut_sat), cv2.LUT(val, lut_val))).astype(dtype)
+    img = img.astype(dtype)
     cv2.cvtColor(img_hsv, cv2.COLOR_HSV2BGR, dst=img)  # no return needed
+    if channels > 3:
+        img = np.concatenate((img, ch_arr), axis=2)
 
 
 def hist_equalize(img, clahe=True, bgr=False):
@@ -949,10 +969,15 @@ def sample_segments(img, labels, segments, probability=0.5):
                 continue
             
             sample_labels.append(l[0])
-            
-            mask = np.zeros(img.shape, np.uint8)
-            
+            if img.shape[-1] < 3:
+                mask = np.zeros(img.shape, np.uint8)
+            else:
+                mask = np.zeros((img.shape[0], img.shape[1], 3), np.uint8)
+                additional_ch = img.shape[-1] - 3
+                additional_ch_arr = np.zeros((img.shape[0], img.shape[1], additional_ch), np.uint8)
+            # print([segments[j].astype(np.int32)][0].shape)
             cv2.drawContours(mask, [segments[j].astype(np.int32)], -1, (255, 255, 255), cv2.FILLED)
+            mask = np.concatenate((mask, additional_ch_arr), axis=2)
             sample_masks.append(mask[box[1]:box[3],box[0]:box[2],:])
             
             result = cv2.bitwise_and(src1=img, src2=mask)

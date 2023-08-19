@@ -59,6 +59,11 @@ def plot_one_box(x, img, color=None, label=None, line_thickness=3):
     tl = line_thickness or round(0.002 * (img.shape[0] + img.shape[1]) / 2) + 1  # line/font thickness
     color = color or [random.randint(0, 255) for _ in range(3)]
     c1, c2 = (int(x[0]), int(x[1])), (int(x[2]), int(x[3]))
+    # print(img.shape)
+    dtype = img.dtype
+    if img.shape[-1] > 3:# have additional channel
+        img, additional_ch = img[:, :, :3], img[:, :, 3:]
+    img = img.astype(dtype)
     cv2.rectangle(img, c1, c2, color, thickness=tl, lineType=cv2.LINE_AA)
     if label:
         tf = max(tl - 1, 1)  # font thickness
@@ -66,6 +71,8 @@ def plot_one_box(x, img, color=None, label=None, line_thickness=3):
         c2 = c1[0] + t_size[0], c1[1] - t_size[1] - 3
         cv2.rectangle(img, c1, c2, color, -1, cv2.LINE_AA)  # filled
         cv2.putText(img, label, (c1[0], c1[1] - 2), 0, tl / 3, [225, 255, 255], thickness=tf, lineType=cv2.LINE_AA)
+    if img.shape[-1] > 3:# have additional channel
+        img = np.concatenate((img, additional_ch), 2)
 
 
 def plot_one_box_PIL(box, img, color=None, label=None, line_thickness=None):
@@ -125,7 +132,7 @@ def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max
 
     tl = 3  # line thickness
     tf = max(tl - 1, 1)  # font thickness
-    bs, _, h, w = images.shape  # batch size, _, height, width
+    bs, ch, h, w = images.shape  # batch size, ch, height, width
     bs = min(bs, max_subplots)  # limit plot images
     ns = np.ceil(bs ** 0.5)  # number of subplots (square)
 
@@ -136,7 +143,7 @@ def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max
         w = math.ceil(scale_factor * w)
 
     colors = color_list()  # list of colors
-    mosaic = np.full((int(ns * h), int(ns * w), 3), 255, dtype=np.uint8)  # init
+    mosaic = np.full((int(ns * h), int(ns * w), ch), 255, dtype=np.uint8)  # init
     for i, img in enumerate(images):
         if i == max_subplots:  # if last batch has fewer images than we expect
             break
@@ -172,6 +179,11 @@ def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max
                     label = '%s' % cls if labels else '%s %.1f' % (cls, conf[j])
                     plot_one_box(box, mosaic, label=label, color=color, line_thickness=tl)
 
+        if ch > 3:
+            mosaic, additional_ch = mosaic[:, :, :3], mosaic[:, :, 3:]
+            mosaic = mosaic.astype(np.uint8)
+        # print("mosaic.shape: ",mosaic.shape)
+        
         # Draw image filename labels
         if paths:
             label = Path(paths[i]).name[:40]  # trim to 40 char
@@ -181,12 +193,16 @@ def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max
 
         # Image border
         cv2.rectangle(mosaic, (block_x, block_y), (block_x + w, block_y + h), (255, 255, 255), thickness=3)
+        if ch > 3:
+            mosaic = np.concatenate((mosaic, additional_ch), axis=2)
 
+    mosaic = mosaic.astype(np.uint8)
     if fname:
         r = min(1280. / max(h, w) / ns, 1.0)  # ratio to limit image size
         mosaic = cv2.resize(mosaic, (int(ns * w * r), int(ns * h * r)), interpolation=cv2.INTER_AREA)
         # cv2.imwrite(fname, cv2.cvtColor(mosaic, cv2.COLOR_BGR2RGB))  # cv2 save
-        Image.fromarray(mosaic).save(fname)  # PIL save
+        # print("mosaic.shape: ",mosaic.shape)
+        Image.fromarray(mosaic[:, :, :3]).save(fname)  # PIL save
     return mosaic
 
 
