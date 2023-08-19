@@ -1,4 +1,11 @@
-# Official YOLOv7
+# Modification to apply multi channel on YOLOv7
+# This is the fork from WongKinYiu/yolov7 to allow multi channel array as input and still in work!
+# Current Progress: 
+add multi channel by np.zeros to test my mod.
+# TODO: 
+change additional channel to target array
+___
+# Below are the original readme from source.
 
 Implementation of paper - [YOLOv7: Trainable bag-of-freebies sets new state-of-the-art for real-time object detectors](https://arxiv.org/abs/2207.02696)
 
