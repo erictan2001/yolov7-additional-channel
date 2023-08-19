@@ -1,5 +1,5 @@
 # Modification to apply multi channel on YOLOv7
-# This is the fork from WongKinYiu/yolov7 to allow multi channel array as input and still in work!
+# This is the fork from WongKinYiu/yolov7 to allow multi channel array as input and still work in progress!
 # Current Progress: 
 add multi channel by np.zeros to test my mod.
 # TODO: 
