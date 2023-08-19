@@ -4,7 +4,15 @@
 add multi channel by np.zeros to test my mod.
 # TODO: 
 change additional channel to target array
+# Examples:
 ___
+``` shell
+# train example for additional channels
+/path/to/python "/path/to/train.py" --cfg cfg/training/yolov7-custom-channel.yaml --batch-size 1
+
+# test example for additional channels
+/path/to/python "/path/to/test.py" --weight /path/to/weight.pt --additional_ch 2 --batch_size 1
+```
 # Below are the original readme from source.
 
 Implementation of paper - [YOLOv7: Trainable bag-of-freebies sets new state-of-the-art for real-time object detectors](https://arxiv.org/abs/2207.02696)
