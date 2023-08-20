@@ -1035,7 +1035,16 @@ def letterbox(img, new_shape=(640, 640), color=(114, 114, 114), auto=True, scale
         img = cv2.resize(img, new_unpad, interpolation=cv2.INTER_LINEAR)
     top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))
     left, right = int(round(dw - 0.1)), int(round(dw + 0.1))
+    additional_ch = img.shape[-1] - 3
+    if additional_ch > 0:
+        img, additional_ch_arr = img[:, :, :3], img[:, :, 3:]
     img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)  # add border
+    additional_ch_arr = cv2.copyMakeBorder(additional_ch_arr, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)
+    if additional_ch > 0:
+        type_additional_ch_arr = type(additional_ch_arr)
+        type_img = type(img)
+        # raise NotImplementedError(f"{type_img} {type_additional_ch_arr}")
+        img = np.concatenate((img, additional_ch_arr), axis=2)
     return img, ratio, (dw, dh)
 
 
