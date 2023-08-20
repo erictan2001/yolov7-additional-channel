@@ -112,10 +112,6 @@ def test(data,
         with torch.no_grad():
             # Run model
             t = time_synchronized()
-            imgdtype = img.dtype
-            if ch > 3:
-                additional_ch_arr = torch.zeros((nb, ch-3, height, width), dtype=imgdtype, device=device)
-                img = np.concatenate((img,additional_ch_arr), axis=1)
             out, train_out = model(img, augment=augment)  # inference and training outputs
             t0 += time_synchronized() - t
 
