@@ -630,7 +630,13 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             labels_out[:, 1:] = torch.from_numpy(labels)
 
         # Convert
-        img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
+        if self.additional_ch > 0:
+            img, additional_ch_arr = img[:,:,:3],img[:,:,3:]
+            img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
+            additional_ch_arr = additional_ch_arr.transpose(2,0,1) # to additional_chx416x416
+            img = np.concatenate((img,additional_ch_arr),axis=0)
+        else:
+            img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
         img = np.ascontiguousarray(img)
 
         return torch.from_numpy(img), labels_out, self.img_files[index], shapes
@@ -691,7 +697,7 @@ def load_image(self, index):
         if self.additional_ch > 0:
             ch_arr = np.zeros((img.shape[0], img.shape[1], self.additional_ch), dtype=np.uint8)
             img = np.concatenate((img, ch_arr), axis=2)
-        return img, self.img_hw0[index], self.img_hw[index]  # img, hw_original, hw_resized
+        return img, self.img_hw0[index], self.img_hw[index]  # img(h,w,ch), hw_original, hw_resized
 
 
 def augment_hsv(img, hgain=0.5, sgain=0.5, vgain=0.5):

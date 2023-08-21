@@ -143,7 +143,7 @@ def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max
         w = math.ceil(scale_factor * w)
 
     colors = color_list()  # list of colors
-    mosaic = np.full((int(ns * h), int(ns * w), ch), 255, dtype=np.uint8)  # init
+    mosaic = np.full((int(ns * h), int(ns * w), 3), 255, dtype=np.uint8)  # init
     for i, img in enumerate(images):
         if i == max_subplots:  # if last batch has fewer images than we expect
             break
@@ -155,7 +155,7 @@ def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max
         if scale_factor < 1:
             img = cv2.resize(img, (w, h))
 
-        mosaic[block_y:block_y + h, block_x:block_x + w, :] = img
+        mosaic[block_y:block_y + h, block_x:block_x + w, :] = img[:,:,:3]
         if len(targets) > 0:
             image_targets = targets[targets[:, 0] == i]
             boxes = xywh2xyxy(image_targets[:, 2:6]).T
@@ -179,10 +179,6 @@ def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max
                     label = '%s' % cls if labels else '%s %.1f' % (cls, conf[j])
                     plot_one_box(box, mosaic, label=label, color=color, line_thickness=tl)
 
-        if ch > 3:
-            mosaic, additional_ch = mosaic[:, :, :3], mosaic[:, :, 3:]
-            mosaic = mosaic.astype(np.uint8)
-        # print("mosaic.shape: ",mosaic.shape)
         
         # Draw image filename labels
         if paths:
@@ -193,10 +189,10 @@ def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max
 
         # Image border
         cv2.rectangle(mosaic, (block_x, block_y), (block_x + w, block_y + h), (255, 255, 255), thickness=3)
-        if ch > 3:
-            mosaic = np.concatenate((mosaic, additional_ch), axis=2)
+        # if ch > 3:
+        #     mosaic = np.concatenate((mosaic, additional_ch), axis=2)
 
-    mosaic = mosaic.astype(np.uint8)
+    # mosaic = mosaic.astype(np.uint8)
     if fname:
         r = min(1280. / max(h, w) / ns, 1.0)  # ratio to limit image size
         mosaic = cv2.resize(mosaic, (int(ns * w * r), int(ns * h * r)), interpolation=cv2.INTER_AREA)
