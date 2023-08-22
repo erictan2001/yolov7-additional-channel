@@ -529,6 +529,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', type=str, default='yolov7.pt', help='initial weights path')
     parser.add_argument('--cfg', type=str, default='', help='model.yaml path')
+    parser.add_argument('--additional-ch-arr', type=str, help='additional-channels-array.npy path')
     parser.add_argument('--data', type=str, default='data/coco.yaml', help='data.yaml path')
     parser.add_argument('--hyp', type=str, default='data/hyp.scratch.p5.yaml', help='hyperparameters path')
     parser.add_argument('--epochs', type=int, default=300)
@@ -576,6 +577,10 @@ if __name__ == '__main__':
         opt.additional_ch = 0
     else:
         opt.additional_ch = opt.ch - 3
+        if opt.additional_ch_arr:
+            opt.additional_ch = np.load(opt.additional_ch_arr)
+        else:
+            raise ReferenceError("since additional channel is exist, you should input additional_ch_arr as parameter.")
     set_logging(opt.global_rank)
     #if opt.global_rank in [-1, 0]:
     #    check_git_status()

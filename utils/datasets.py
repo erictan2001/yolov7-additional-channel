@@ -63,7 +63,7 @@ def exif_size(img):
 
 
 def create_dataloader(path, imgsz, batch_size, stride, opt, hyp=None, augment=False, cache=False, pad=0.0, rect=False,
-                      rank=-1, world_size=1, workers=8, image_weights=False, quad=False, prefix='',additional_ch=0):
+                      rank=-1, world_size=1, workers=8, image_weights=False, quad=False, prefix='',additional_ch=None):
     # Make sure only the first process in DDP process the dataset first, and the following others can use the cache
     with torch_distributed_zero_first(rank):
         dataset = LoadImagesAndLabels(path, imgsz, batch_size,
@@ -127,7 +127,7 @@ class _RepeatSampler(object):
 
 
 class LoadImages:  # for inference
-    def __init__(self, path, img_size=640, stride=32,additonal_ch=0):
+    def __init__(self, path, img_size=640, stride=32,additonal_ch=None):
         p = str(Path(path).absolute())  # os-agnostic absolute path
         if '*' in p:
             files = sorted(glob.glob(p, recursive=True))  # glob
@@ -148,7 +148,11 @@ class LoadImages:  # for inference
         self.nf = ni + nv  # number of files
         self.video_flag = [False] * ni + [True] * nv
         self.mode = 'image'
-        self.additonal_ch = additonal_ch
+        if self.additional_ch:
+            self.dim_additional_ch = additonal_ch.shape[-1]
+        else:
+            self.dim_additional_ch = 0
+        self.additional_ch = additonal_ch
         if any(videos):
             self.new_video(videos[0])  # new video
         else:
@@ -188,9 +192,8 @@ class LoadImages:  # for inference
             img0 = cv2.imread(path)  # BGR
             assert img0 is not None, 'Image Not Found ' + path
             # append additional channel for img
-            if self.additional_ch > 0:
-                ch_arr = np.zeros((img0.shape[0], img0.shape[1], 1), dtype=img0.dtype)
-                img0 = np.concatenate((img0, ch_arr), axis=2)
+            if self.dim_additional_ch > 0:
+                img0 = np.concatenate((img0, self.additional_ch), axis=2)
             #print(f'image {self.count}/{self.nf} {path}: ', end='')
 
         # Padded resize
@@ -358,7 +361,7 @@ def img2label_paths(img_paths):
 
 class LoadImagesAndLabels(Dataset):  # for training/testing
     def __init__(self, path, img_size=640, batch_size=16, augment=False, hyp=None, rect=False, image_weights=False,
-                 cache_images=False, single_cls=False, stride=32, pad=0.0, prefix='',additional_ch=0):
+                 cache_images=False, single_cls=False, stride=32, pad=0.0, prefix='',additional_ch=None):
         self.img_size = img_size
         self.augment = augment
         self.hyp = hyp
@@ -367,7 +370,11 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         self.mosaic = self.augment and not self.rect  # load 4 images at a time into a mosaic (only during training)
         self.mosaic_border = [-img_size // 2, -img_size // 2]
         self.stride = stride
-        self.path = path        
+        self.path = path
+        if additional_ch:
+            self.dim_additional_ch = additional_ch.shape[-1]
+        else:
+            self.dim_additional_ch = 0
         self.additional_ch = additional_ch
         #self.albumentations = Albumentations() if augment else None
 
@@ -630,7 +637,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             labels_out[:, 1:] = torch.from_numpy(labels)
 
         # Convert
-        if self.additional_ch > 0:
+        if self.dim_additional_ch > 0:
             img, additional_ch_arr = img[:,:,:3],img[:,:,3:]
             img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
             additional_ch_arr = additional_ch_arr.transpose(2,0,1) # to additional_chx416x416
@@ -689,14 +696,12 @@ def load_image(self, index):
             interp = cv2.INTER_AREA if r < 1 and not self.augment else cv2.INTER_LINEAR
             img = cv2.resize(img, (int(w0 * r), int(h0 * r)), interpolation=interp)
         #TODO: change to correct additional channels array
-        if self.additional_ch > 0:
-            ch_arr = np.zeros((img.shape[0], img.shape[1], self.additional_ch), dtype=np.uint8)
-            img = np.concatenate((img, ch_arr), axis=2)
+        if self.dim_additional_ch > 0:
+            img = np.concatenate((img, self.additional_ch), axis=2)
         return img, (h0, w0), img.shape[:2]  # img, hw_original, hw_resized
     else:
-        if self.additional_ch > 0:
-            ch_arr = np.zeros((img.shape[0], img.shape[1], self.additional_ch), dtype=np.uint8)
-            img = np.concatenate((img, ch_arr), axis=2)
+        if self.dim_additional_ch > 0:
+            img = np.concatenate((img, self.additional_ch), axis=2)
         return img, self.img_hw0[index], self.img_hw[index]  # img(h,w,ch), hw_original, hw_resized
 
 
@@ -979,11 +984,11 @@ def sample_segments(img, labels, segments, probability=0.5):
                 mask = np.zeros(img.shape, np.uint8)
             else:
                 mask = np.zeros((img.shape[0], img.shape[1], 3), np.uint8)
-                additional_ch = img.shape[-1] - 3
-                additional_ch_arr = np.zeros((img.shape[0], img.shape[1], additional_ch), np.uint8)
+                dim_additional_ch = img.shape[-1] - 3
+                additional_ch = np.zeros((img.shape[0], img.shape[1], dim_additional_ch), np.uint8)
             # print([segments[j].astype(np.int32)][0].shape)
             cv2.drawContours(mask, [segments[j].astype(np.int32)], -1, (255, 255, 255), cv2.FILLED)
-            mask = np.concatenate((mask, additional_ch_arr), axis=2)
+            mask = np.concatenate((mask, additional_ch), axis=2)
             sample_masks.append(mask[box[1]:box[3],box[0]:box[2],:])
             
             result = cv2.bitwise_and(src1=img, src2=mask)
@@ -1041,16 +1046,13 @@ def letterbox(img, new_shape=(640, 640), color=(114, 114, 114), auto=True, scale
         img = cv2.resize(img, new_unpad, interpolation=cv2.INTER_LINEAR)
     top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))
     left, right = int(round(dw - 0.1)), int(round(dw + 0.1))
-    additional_ch = img.shape[-1] - 3
-    if additional_ch > 0:
-        img, additional_ch_arr = img[:, :, :3], img[:, :, 3:]
+    dim_additional_ch = img.shape[-1] - 3
+    if dim_additional_ch > 0:
+        img, additional_ch = img[:, :, :3], img[:, :, 3:]
     img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)  # add border
-    additional_ch_arr = cv2.copyMakeBorder(additional_ch_arr, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)
-    if additional_ch > 0:
-        type_additional_ch_arr = type(additional_ch_arr)
-        type_img = type(img)
-        # raise NotImplementedError(f"{type_img} {type_additional_ch_arr}")
-        img = np.concatenate((img, additional_ch_arr), axis=2)
+    additional_ch = cv2.copyMakeBorder(additional_ch, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)
+    if dim_additional_ch > 0:
+        img = np.concatenate((img, additional_ch), axis=2)
     return img, ratio, (dw, dh)
 
 

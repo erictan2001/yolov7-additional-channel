@@ -7,6 +7,9 @@
 train: ./coco/train100.txt  # 118287 images
 val: ./coco/val100.txt  # 5000 images
 test: ./coco/test-dev100.txt  # 20288 of 40670 images, submit to https://competitions.codalab.org/competitions/20794
+train: ./coco/train-additional-ch100.txt
+val: ./coco/val-additional-ch100.txt  # 5000 images
+test: ./coco/test-dev-additional-ch100.txt
 
 # number of classes
 nc: 80
